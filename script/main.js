@@ -17,31 +17,32 @@ const leftMenu = document.querySelector('.left-menu'),
   modalLink = document.querySelector('.modal__link'),
   searchForm = document.querySelector('.search__form'),
   searchFormInput = document.querySelector('.search__form-input'),
-  preloader = document.querySelector('.preloader');
+  preloader = document.querySelector('.preloader'),
+  dropdown = document.querySelectorAll('.dropdown'),
+  tvShowsHead = document.querySelector('.tv-shows__head'),
+  modalContent = document.querySelector('.modal__content'),
+  pagination = document.querySelector('.pagination');
 
 const loading = document.createElement('div');
 loading.className = 'loading';
 
+const closeDropdown = () => {
+  dropdown.forEach(item => {
+    item.classList.remove('active');
+  })
+}
+
 hamburger.addEventListener('click', () => {
   leftMenu.classList.toggle('openMenu');
   hamburger.classList.toggle('open');
+  closeDropdown();
 });
 
 document.body.addEventListener('click', (e) => {
   if (!e.target.closest('.left-menu')) {
     leftMenu.classList.remove('openMenu');
     hamburger.classList.remove('open');
-  }
-});
-
-leftMenu.addEventListener('click', e => {
-  e.preventDefault();
-  const target = e.target;
-  const dropdown = target.closest('.dropdown');
-  if (dropdown) {
-    dropdown.classList.toggle('active');
-    leftMenu.classList.add('openMenu');
-    hamburger.classList.add('open');
+    closeDropdown();
   }
 });
 
@@ -73,17 +74,35 @@ const DBService = class {
     return await this.getData('card.json')
   }
   getSearchResult = query => {
-    return this.getData(`${SERVER}/search/tv?api_key=${API_KEY}&query=${query}&language=ru-RU`)
+    this.temp = `${SERVER}/search/tv?api_key=${API_KEY}&query=${query}&language=ru-RU`;
+    return this.getData(this.temp)
   }
+
+  getNextPage = page => {
+    return this.getData(this.temp + '&page=' + page);
+  }
+
   getTvShow = id => {
     return this.getData(`${SERVER}/tv/${id}?api_key=${API_KEY}&language=ru-RU`);
   }
+  getTopRated = () => this.getData(`${SERVER}/tv/top_rated?api_key=${API_KEY}&language=ru-RU`)
+  getPopular = () => this.getData(`${SERVER}/tv/popular?api_key=${API_KEY}&language=ru-RU`)
+  getToday = () => this.getData(`${SERVER}/tv/airing_today?api_key=${API_KEY}&language=ru-RU`)
+  getWeek = () => this.getData(`${SERVER}/tv/on_the_air?api_key=${API_KEY}&language=ru-RU`)
 }
-console.log(new DBService().getSearchResult('Няня'));
+const dbService = new DBService();
 
-const renderCard = response => {
+const renderCard = (response, target) => {
 
   tvShowsList.textContent = '';
+  if (!response.total_results) {
+    loading.remove();
+    tvShowsHead.textContent = 'Unfortunately nothing is found by your request...';
+    tvShowsHead.style.cssText = 'color: red';
+    return;
+  }
+  tvShowsHead.textContent = target ? target.textContent : `Result of search:`;
+
   response.results.forEach(item => {
     const {
       backdrop_path: backdrop,
@@ -115,26 +134,22 @@ const renderCard = response => {
     `;
     loading.remove();
     tvShowsList.append(card);
-  })
+  });
+
+  pagination.innerHTML = '';
+  if (!target && response.total_pages > 1) {
+    for (let i = 1; i <= response.total_pages; i++) {
+      pagination.innerHTML += `<li><a href="#" class="pages">${i}</a></li>`
+    }
+  }
 };
 
 searchForm.addEventListener('submit', e => {
   e.preventDefault();
   const value = searchFormInput.value.trim();
-  console.log(value)
   if (value) {
     tvShows.append(loading);
-    new DBService().getSearchResult(value).then(res => {
-      let resOfSearch = res.total_results;
-      if (resOfSearch == 0) {
-        tvShowsList.textContent = '';
-        console.log('not found');
-        loading.remove();
-      } else {
-        new DBService().getSearchResult(value).then(renderCard);
-      }
-    });
-    // new DBService().getSearchResult(value).then(renderCard);
+    dbService.getSearchResult(value).then(renderCard);
   }
   searchFormInput.value = '';
 });
@@ -145,21 +160,26 @@ tvShowsList.addEventListener('mouseover', changeImage);
 tvShowsList.addEventListener('mouseout', changeImage)
 
 tvShowsList.addEventListener('click', e => {
-  preloader.style.display = 'block';
   e.preventDefault();
   const target = e.target;
   const card = target.closest('.tv-card');
   if (card) {
-    new DBService().getTvShow(card.id)
+    preloader.style.display = 'block';
+    dbService.getTvShow(card.id)
       .then(data => {
-        tvCardImg.src = IMG_URL + data.poster_path;
-        modalTitle.textContent = data.name;
         if (!data.poster_path) {
           tvCardImg.closest('.image__content').style.display = 'none';
+          modalContent.style.paddingLeft = '25px';
+        } else {
+          tvCardImg.src = IMG_URL + data.poster_path;
+          tvCardImg.alt = data.name;
+          tvCardImg.closest('.image__content').style.display = '';
+          modalContent.style.paddingLeft = '';
         }
         // genresList.innerHTML = data.genres.reduce((acc, item) => {
         //   return `${acc} <li>${item.name}</li>`
         // }, '');
+        modalTitle.textContent = data.name;
         genresList.textContent = '';
         for (const item of data.genres) {
           genresList.innerHTML += `<li>${item.name}</li>`;
@@ -169,10 +189,43 @@ tvShowsList.addEventListener('click', e => {
         modalLink.href = data.homepage;
       })
       .then(() => {
-        preloader.style.display = 'none';
         document.body.style.overflow = 'hidden';
         modal.classList.remove('hide');
       })
+      .then(() => {
+        preloader.style.display = 'none';
+      })
+  }
+});
+
+leftMenu.addEventListener('click', e => {
+  e.preventDefault();
+  const target = e.target;
+  const dropdown = target.closest('.dropdown');
+  if (dropdown) {
+    dropdown.classList.toggle('active');
+    leftMenu.classList.add('openMenu');
+    hamburger.classList.add('open');
+  }
+  if (target.closest('#top-rated')) {
+    tvShows.append(loading);
+    dbService.getTopRated().then((response) => renderCard(response, target));
+  }
+  if (target.closest('#popular')) {
+    tvShows.append(loading);
+    dbService.getPopular().then((response) => renderCard(response, target));
+  }
+  if (target.closest('#week')) {
+    tvShows.append(loading);
+    dbService.getWeek().then((response) => renderCard(response, target));
+  }
+  if (target.closest('#today')) {
+    tvShows.append(loading);
+    dbService.getToday().then((response) => renderCard(response, target));
+  }
+  if (target.closest('#search')) {
+    tvShowsList.textContent = '';
+    tvShowsHead.textContent = '';
   }
 });
 
@@ -180,5 +233,14 @@ modal.addEventListener('click', e => {
   if (e.target.closest('.cross') || e.target.classList.contains('modal')) {
     modal.classList.add('hide');
     document.body.style.overflow = '';
+  }
+});
+
+pagination.addEventListener('click', (e) => {
+  e.preventDefault();
+  const target = e.target;
+  if (target.classList.contains('pages')) {
+    tvShows.append(loading);
+    dbService.getNextPage(target.textContent).then(renderCard);
   }
 });
